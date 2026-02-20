@@ -65,6 +65,9 @@ export function useGeolocation() {
     } else if (perm === 'denied') {
       setStatus('denied');
       setChecking(false);
+    } else if (perm === 'deferred') {
+      setStatus('deferred');
+      setChecking(false);
     } else {
       setChecking(false);
     }

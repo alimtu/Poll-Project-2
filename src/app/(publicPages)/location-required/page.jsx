@@ -6,22 +6,47 @@ import { MapPinIcon, MapPinOffIcon, ShieldAlertIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useGeolocation } from '@/lib/hooks/useGeolocation';
 
+const MAX_RETRIES = 3;
+const RETRY_COUNT_KEY = 'location_retry_count';
+
 export default function LocationRequiredPage() {
   const router = useRouter();
   const { status, requestPermission } = useGeolocation();
   const [loading, setLoading] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const count = parseInt(localStorage.getItem(RETRY_COUNT_KEY) || '0', 10);
+      setRetryCount(count);
+    }
+  }, []);
 
   useEffect(() => {
     if (status === 'granted') {
+      localStorage.removeItem(RETRY_COUNT_KEY);
       router.replace('/');
     }
   }, [status, router]);
 
   const handleRetry = async () => {
     setLoading(true);
-    await requestPermission();
+    const result = await requestPermission();
     setLoading(false);
+    if (result === 'denied') {
+      const next = retryCount + 1;
+      localStorage.setItem(RETRY_COUNT_KEY, String(next));
+      setRetryCount(next);
+    }
   };
+
+  const handleDefer = () => {
+    localStorage.setItem('location_permission', 'deferred');
+    localStorage.removeItem(RETRY_COUNT_KEY);
+    window.location.href = '/';
+  };
+
+  const showDeferButton = retryCount >= MAX_RETRIES;
 
   return (
     <div className="flex flex-col items-center justify-center min-h-dvh p-6 text-center">
@@ -49,9 +74,16 @@ export default function LocationRequiredPage() {
           در صورت مسدود بودن دسترسی، از تنظیمات مرورگر خود آن را برای این سایت فعال کنید.
         </p>
       </div>
-      <Button onClick={handleRetry} className="px-8 h-11" disabled={loading}>
-        {loading ? 'در حال دریافت موقعیت...' : 'اجازه می‌دهم'}
-      </Button>
+      <div className="flex flex-col gap-3 w-full max-w-xs">
+        <Button onClick={handleRetry} className="w-full h-11" disabled={loading}>
+          {loading ? 'در حال دریافت موقعیت...' : 'اجازه می‌دهم'}
+        </Button>
+        {showDeferButton && (
+          <Button variant="outline" onClick={handleDefer} className="w-full h-11 text-grey-600">
+            بعدا دسترسی می‌دهم
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

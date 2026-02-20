@@ -20,9 +20,12 @@ export default function LayoutShell({ children }) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (isLoginPage) return;
     const finger = localStorage.getItem('finger');
-    if (!finger) {
+    if (finger && isLoginPage) {
+      router.replace('/');
+      return;
+    }
+    if (!finger && !isLoginPage) {
       localStorage.clear();
       router.replace('/login');
     }
@@ -30,9 +33,16 @@ export default function LayoutShell({ children }) {
 
   useEffect(() => {
     if (!checking && isLoggedIn && !isLoginPage && status === 'denied' && !isLocationRequiredPage) {
-      router.replace('/location-required');
+      const perm = localStorage.getItem('location_permission');
+      if (perm !== 'deferred') {
+        router.replace('/location-required');
+      }
     }
   }, [checking, isLoggedIn, isLoginPage, status, isLocationRequiredPage, router]);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
 
   const needsLocationPrompt = !isLoginPage && !isLocationRequiredPage && isLoggedIn && (status === 'idle' || status === 'loading') && !checking;
 
