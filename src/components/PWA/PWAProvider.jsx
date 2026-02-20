@@ -4,9 +4,10 @@ import { useCallback } from 'react';
 import { useServiceWorker, useOnlineStatus, useInstallPrompt } from '@/lib/hooks/usePWA';
 import OfflineIndicator from './OfflineIndicator';
 import InstallPrompt from './InstallPrompt';
+import UpdateBanner from './UpdateBanner';
 
 export default function PWAProvider({ children }) {
-  useServiceWorker();
+  const { updateAvailable, applyUpdate } = useServiceWorker();
   const isOnline = useOnlineStatus();
   const { canInstall, install } = useInstallPrompt();
 
@@ -20,7 +21,9 @@ export default function PWAProvider({ children }) {
 
       {!isOnline && <OfflineIndicator />}
 
-      {canInstall && <InstallPrompt onInstall={handleInstall} />}
+      {updateAvailable && <UpdateBanner onUpdate={applyUpdate} />}
+
+      {canInstall && !updateAvailable && <InstallPrompt onInstall={handleInstall} />}
     </>
   );
 }

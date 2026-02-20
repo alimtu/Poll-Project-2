@@ -3,25 +3,47 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 export function useServiceWorker() {
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const registrationRef = useRef(null);
+
   useEffect(() => {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
 
     navigator.serviceWorker
       .register('/sw.js')
       .then((reg) => {
+        registrationRef.current = reg;
+
         reg.addEventListener('updatefound', () => {
           const newWorker = reg.installing;
           if (!newWorker) return;
 
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              newWorker.postMessage({ type: 'SKIP_WAITING' });
+              setUpdateAvailable(true);
             }
           });
         });
+
+        if (reg.waiting && navigator.serviceWorker.controller) {
+          setUpdateAvailable(true);
+        }
       })
       .catch(() => {});
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      window.location.reload();
+    });
   }, []);
+
+  const applyUpdate = useCallback(() => {
+    const reg = registrationRef.current;
+    if (reg?.waiting) {
+      reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    }
+  }, []);
+
+  return { updateAvailable, applyUpdate };
 }
 
 export function useOnlineStatus() {
