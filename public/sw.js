@@ -1,4 +1,4 @@
-const CACHE_NAME = 'icms-pwa-v2';
+const CACHE_NAME = 'icms-pwa-v3';
 
 const PRECACHE_URLS = ['/', '/login', '/offline'];
 
