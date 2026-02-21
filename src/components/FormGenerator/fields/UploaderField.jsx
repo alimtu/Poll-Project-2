@@ -3,20 +3,24 @@
 import { useRef, useState, useMemo } from 'react';
 import { Controller } from 'react-hook-form';
 import {
-  UploadIcon, XIcon, ImageIcon, FileIcon, VideoIcon,
-  FileTextIcon, FileSpreadsheetIcon, EyeIcon,
+  UploadIcon, XIcon, ImageIcon, FileIcon, VideoIcon, MicIcon,
+  FileTextIcon, FileSpreadsheetIcon, EyeIcon, LoaderIcon,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Label } from '../../ui/label';
+import useUpload from '../../../lib/hooks/useUpload';
 
 const TYPE_CONFIG = {
-  7: { accept: 'image/*', label: 'انتخاب تصویر', icon: ImageIcon },
-  8: { accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar', label: 'انتخاب فایل', icon: FileIcon },
-  9: { accept: 'video/*', label: 'انتخاب ویدیو', icon: VideoIcon },
+  7:  { accept: 'image/*', label: 'انتخاب تصویر', icon: ImageIcon },
+  8:  { accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar', label: 'انتخاب فایل', icon: FileIcon },
+  23: { accept: 'audio/*', label: 'انتخاب فایل صوتی', icon: MicIcon },
+  24: { accept: 'video/*', label: 'انتخاب ویدیو', icon: VideoIcon },
 };
 
 function getFileIcon(file, type) {
   if (type === 7) return ImageIcon;
-  if (type === 9) return VideoIcon;
+  if (type === 24) return VideoIcon;
+  if (type === 23) return MicIcon;
   const ext = file?.name?.split('.').pop()?.toLowerCase();
   if (['pdf'].includes(ext)) return FileTextIcon;
   if (['xls', 'xlsx', 'csv'].includes(ext)) return FileSpreadsheetIcon;
@@ -30,13 +34,8 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function FilePreview({ file, type, onClose }) {
-  const url = useMemo(() => {
-    if (!file) return null;
-    return URL.createObjectURL(file);
-  }, [file]);
-
-  if (!url) return null;
+function FilePreview({ file, localUrl, type, onClose }) {
+  if (!localUrl) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
@@ -50,18 +49,26 @@ function FilePreview({ file, type, onClose }) {
         </button>
 
         {type === 7 && (
-          <img src={url} alt={file.name} className="max-h-[80vh] max-w-full object-contain" />
+          <img src={localUrl} alt={file?.name} className="max-h-[80vh] max-w-full object-contain" />
         )}
 
-        {type === 9 && (
-          <video src={url} controls className="max-h-[80vh] max-w-full" />
+        {type === 24 && (
+          <video src={localUrl} controls className="max-h-[80vh] max-w-full" />
+        )}
+
+        {type === 23 && (
+          <div className="p-8 flex flex-col items-center gap-3">
+            <MicIcon className="size-12 text-grey-300" />
+            <p className="text-sm text-grey-700 text-center break-all">{file?.name}</p>
+            <audio src={localUrl} controls className="w-full mt-2" />
+          </div>
         )}
 
         {type === 8 && (
           <div className="p-8 flex flex-col items-center gap-3">
             <FileIcon className="size-12 text-grey-300" />
-            <p className="text-sm text-grey-700 text-center break-all">{file.name}</p>
-            <p className="text-xs text-grey-400">{formatSize(file.size)}</p>
+            <p className="text-sm text-grey-700 text-center break-all">{file?.name}</p>
+            <p className="text-xs text-grey-400">{file?.size ? formatSize(file.size) : ''}</p>
             <p className="text-xs text-grey-400">پیش‌نمایش این نوع فایل پشتیبانی نمی‌شود.</p>
           </div>
         )}
@@ -73,7 +80,9 @@ function FilePreview({ file, type, onClose }) {
 export default function UploaderField({ name, control, section }) {
   const inputRef = useRef(null);
   const [previewing, setPreviewing] = useState(false);
+  const [localFile, setLocalFile] = useState(null);
   const config = TYPE_CONFIG[section.type] || TYPE_CONFIG[8];
+  const upload = useUpload();
 
   return (
     <Controller
@@ -81,29 +90,40 @@ export default function UploaderField({ name, control, section }) {
       control={control}
       defaultValue={null}
       render={({ field, fieldState }) => {
-        const file = field.value;
-        const FileIconComp = file ? getFileIcon(file, section.type) : config.icon;
+        const hasValue = !!field.value;
+        const FileIconComp = localFile ? getFileIcon(localFile, section.type) : config.icon;
+
+        const localUrl = useMemo(() => {
+          if (localFile) return URL.createObjectURL(localFile);
+          return null;
+        }, [localFile]);
 
         const handleChange = (e) => {
-          const selected = e.target.files?.[0] || null;
-          field.onChange(selected);
+          const selected = e.target.files?.[0];
+          if (!selected) return;
+
+          setLocalFile(selected);
+
+          upload.mutate(selected, {
+            onSuccess: (data) => {
+              field.onChange(data?.file || data);
+            },
+            onError: () => {
+              toast.error('خطا در آپلود فایل');
+              setLocalFile(null);
+              field.onChange(null);
+              if (inputRef.current) inputRef.current.value = '';
+            },
+          });
         };
 
         const handleRemove = () => {
           field.onChange(null);
+          setLocalFile(null);
           setPreviewing(false);
+          upload.reset();
           if (inputRef.current) inputRef.current.value = '';
         };
-
-        const imageThumbUrl = useMemo(() => {
-          if (section.type === 7 && file) return URL.createObjectURL(file);
-          return null;
-        }, [file]);
-
-        const videoThumbUrl = useMemo(() => {
-          if (section.type === 9 && file) return URL.createObjectURL(file);
-          return null;
-        }, [file]);
 
         return (
           <div>
@@ -123,10 +143,11 @@ export default function UploaderField({ name, control, section }) {
               className="hidden"
             />
 
-            {!file ? (
+            {!localFile && !hasValue ? (
               <button
                 type="button"
                 onClick={() => inputRef.current?.click()}
+                disabled={upload.isPending}
                 className={`mt-1.5 flex w-full flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-5 text-grey-400 transition-colors hover:border-primary-300 hover:text-primary-500 ${
                   fieldState.error ? 'border-danger-400' : 'border-grey-200'
                 }`}
@@ -136,30 +157,24 @@ export default function UploaderField({ name, control, section }) {
               </button>
             ) : (
               <div className="mt-1.5 rounded-lg border border-grey-100 overflow-hidden">
-                {/* Image thumbnail */}
-                {section.type === 7 && imageThumbUrl && (
+                {section.type === 7 && localUrl && (
                   <div
                     className="relative h-36 bg-grey-50 cursor-pointer group"
                     onClick={() => setPreviewing(true)}
                   >
-                    <img
-                      src={imageThumbUrl}
-                      alt={file.name}
-                      className="w-full h-full object-contain"
-                    />
+                    <img src={localUrl} alt={localFile?.name} className="w-full h-full object-contain" />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                       <EyeIcon className="size-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
                   </div>
                 )}
 
-                {/* Video thumbnail */}
-                {section.type === 9 && videoThumbUrl && (
+                {section.type === 24 && localUrl && (
                   <div
                     className="relative h-36 bg-black cursor-pointer group"
                     onClick={() => setPreviewing(true)}
                   >
-                    <video src={videoThumbUrl} className="w-full h-full object-contain" muted />
+                    <video src={localUrl} className="w-full h-full object-contain" muted />
                     <div className="absolute inset-0 flex items-center justify-center">
                       <div className="size-10 rounded-full bg-white/80 flex items-center justify-center group-hover:bg-white transition-colors">
                         <VideoIcon className="size-5 text-grey-700" />
@@ -168,27 +183,38 @@ export default function UploaderField({ name, control, section }) {
                   </div>
                 )}
 
-                {/* File info row */}
                 <div className="flex items-center gap-3 px-3 py-2.5">
-                  <FileIconComp className="size-5 text-primary-400 shrink-0" />
+                  {upload.isPending ? (
+                    <LoaderIcon className="size-5 text-primary-400 shrink-0 animate-spin" />
+                  ) : (
+                    <FileIconComp className="size-5 text-primary-400 shrink-0" />
+                  )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-grey-700 truncate">{file.name}</p>
-                    <p className="text-[11px] text-grey-400">{formatSize(file.size)}</p>
+                    <p className="text-sm text-grey-700 truncate">{localFile?.name}</p>
+                    <p className="text-[11px] text-grey-400">
+                      {upload.isPending
+                        ? 'در حال آپلود...'
+                        : localFile ? formatSize(localFile.size) : ''}
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewing(true)}
-                    className="text-grey-400 hover:text-primary-500 p-1"
-                  >
-                    <EyeIcon className="size-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRemove}
-                    className="text-grey-400 hover:text-danger-500 p-1"
-                  >
-                    <XIcon className="size-4" />
-                  </button>
+                  {!upload.isPending && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewing(true)}
+                        className="text-grey-400 hover:text-primary-500 p-1"
+                      >
+                        <EyeIcon className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRemove}
+                        className="text-grey-400 hover:text-danger-500 p-1"
+                      >
+                        <XIcon className="size-4" />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -197,8 +223,8 @@ export default function UploaderField({ name, control, section }) {
               <p className="text-[11px] text-danger-500 mt-1">{fieldState.error.message}</p>
             )}
 
-            {previewing && file && (
-              <FilePreview file={file} type={section.type} onClose={() => setPreviewing(false)} />
+            {previewing && localFile && (
+              <FilePreview file={localFile} localUrl={localUrl} type={section.type} onClose={() => setPreviewing(false)} />
             )}
           </div>
         );

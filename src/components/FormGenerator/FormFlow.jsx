@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useForm, useWatch } from 'react-hook-form';
 import { joiResolver } from '@hookform/resolvers/joi';
 import { ArrowRightIcon, CheckIcon, CircleCheckBigIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
 import FieldRenderer from './FieldRenderer';
+import RepeatableStep from './RepeatableStep';
 import buildFormSchema from '../../lib/utils/buildFormSchema';
 import { getSavedLocation } from '../../lib/hooks/useGeolocation';
+import useSubmitForm from '../../lib/hooks/useSubmitForm';
 
 export default function FormFlow({ form, onBack }) {
   const [currentStep, setCurrentStep] = useState(0);
@@ -20,53 +22,133 @@ export default function FormFlow({ form, onBack }) {
   const isLast = currentStep === steps.length - 1;
 
   const schema = buildFormSchema(steps);
+  const submitForm = useSubmitForm();
 
   const {
     control,
     handleSubmit,
     trigger,
-    formState: { isSubmitting },
+    getValues,
+    setError,
+    clearErrors,
   } = useForm({
     resolver: joiResolver(schema),
     defaultValues: {},
-    mode: 'onChange',
+    mode: 'onTouched',
   });
 
   const allSections = [...(step?.sections || [])];
+  const isRepeatable = step?.numrow > 1;
+  const repeatableAttempted = useRef(false);
+
+  const getStepFieldNames = () => {
+    if (isRepeatable) return [`rows_${step.stepId}`];
+    return allSections.map((s) => `section_${s.sectionId}`);
+  };
+
+  const isFieldEmpty = (val, type) => {
+    if (val == null || val === '') return true;
+    if (typeof val === 'string' && type === 2) {
+      return val.replace(/<[^>]*>/g, '').trim().length === 0;
+    }
+    if (Array.isArray(val)) return val.length === 0;
+    return false;
+  };
+
+  const validateRepeatableRequired = useCallback(() => {
+    if (!isRepeatable) return true;
+    const arrayName = `rows_${step.stepId}`;
+    const rows = getValues(arrayName) || [];
+    const requiredSections = allSections.filter((s) => s.required);
+    if (requiredSections.length === 0) return true;
+
+    let allValid = true;
+    for (const section of requiredSections) {
+      const key = `section_${section.sectionId}`;
+      const anyFilled = rows.some((row) => !isFieldEmpty(row?.[key], section.type));
+
+      if (!anyFilled) {
+        allValid = false;
+        rows.forEach((_, rowIdx) => {
+          const fieldPath = `${arrayName}.${rowIdx}.${key}`;
+          if (isFieldEmpty(rows[rowIdx]?.[key], section.type)) {
+            setError(fieldPath, {
+              type: 'manual',
+              message: `${section.title} حداقل در یک ردیف الزامی است`,
+            });
+          }
+        });
+      } else {
+        rows.forEach((_, rowIdx) => {
+          clearErrors(`${arrayName}.${rowIdx}.${key}`);
+        });
+      }
+    }
+    return allValid;
+  }, [isRepeatable, step, allSections, getValues, setError, clearErrors]);
+
+  const watchedRows = useWatch({
+    control,
+    name: isRepeatable ? `rows_${step.stepId}` : '__unused__',
+  });
+
+  useEffect(() => {
+    if (repeatableAttempted.current && isRepeatable) {
+      validateRepeatableRequired();
+    }
+  }, [watchedRows, isRepeatable, validateRepeatableRequired]);
 
   const scrollToFirstError = () => {
-    const firstError = document.querySelector('[data-field] [aria-invalid="true"], [data-field] .text-danger-500');
-    if (firstError) {
-      const wrapper = firstError.closest('[data-field]');
-      (wrapper || firstError).scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    setTimeout(() => {
+      const firstError = document.querySelector('[data-field] [aria-invalid="true"], [data-field] .text-danger-500');
+      if (firstError) {
+        const wrapper = firstError.closest('[data-field]');
+        (wrapper || firstError).scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
   };
 
   const goNext = async () => {
-    const fieldsToValidate = allSections.map((s) => `section_${s.sectionId}`);
-    const valid = await trigger(fieldsToValidate);
-    if (valid) {
+    if (isRepeatable) repeatableAttempted.current = true;
+    const valid = await trigger(getStepFieldNames());
+    const repeatValid = validateRepeatableRequired();
+    if (valid && repeatValid) {
+      repeatableAttempted.current = false;
       setCurrentStep((i) => i + 1);
     } else {
-      setTimeout(scrollToFirstError, 100);
+      scrollToFirstError();
     }
   };
 
   const goPrev = () => setCurrentStep((i) => i - 1);
 
-  const onSubmit = (values) => {
-    const location = getSavedLocation();
-    const payload = {
-      ...values,
-      ...(location ? { lat: location.lat, lng: location.lng } : {}),
-    };
-    console.log(`Form [${form.formId}] submitted:`, payload);
-    toast.success('فرم با موفقیت ثبت شد.');
-    setSubmitted(true);
-  };
+  const doSubmit = async () => {
+    if (isRepeatable) repeatableAttempted.current = true;
+    const valid = await trigger(getStepFieldNames());
+    const repeatValid = validateRepeatableRequired();
+    if (!valid || !repeatValid) {
+      scrollToFirstError();
+      return;
+    }
 
-  const onSubmitError = () => {
-    setTimeout(scrollToFirstError, 100);
+    handleSubmit(
+      (values) => {
+        const location = getSavedLocation();
+        submitForm.mutate(
+          { values, steps, formId: form.formId, location: location || null },
+          {
+            onSuccess: () => {
+              toast.success('فرم با موفقیت ثبت شد.');
+              setSubmitted(true);
+            },
+            onError: (err) => {
+              toast.error(err?.message || 'خطا در ارسال فرم');
+            },
+          },
+        );
+      },
+      () => scrollToFirstError()
+    )();
   };
 
   useEffect(() => {
@@ -75,6 +157,12 @@ export default function FormFlow({ form, onBack }) {
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
   }, [submitted, countdown, onBack]);
+
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentStep]);
+
 
   if (submitted) {
     return (
@@ -101,7 +189,7 @@ export default function FormFlow({ form, onBack }) {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit, onSubmitError)} className="flex flex-col min-h-[calc(100dvh-56px)]">
+    <div className="flex flex-col min-h-[calc(100dvh-56px)]">
       <div className="flex-1 pb-24">
 
         {/* Sticky header */}
@@ -173,6 +261,8 @@ export default function FormFlow({ form, onBack }) {
         <div className="space-y-5 p-4">
           {allSections.length === 0 ? (
             <p className="text-sm text-grey-300 text-center py-6">بدون فیلد</p>
+          ) : isRepeatable ? (
+            <RepeatableStep step={step} control={control} />
           ) : (
             allSections.map((section) => (
               <FieldRenderer key={section.sectionId} section={section} control={control} />
@@ -193,12 +283,12 @@ export default function FormFlow({ form, onBack }) {
               بعدی
             </Button>
           ) : (
-            <Button type="submit" className="flex-1 h-11" disabled={isSubmitting}>
-              {isSubmitting ? 'در حال ارسال...' : 'ثبت'}
+            <Button type="button" onClick={doSubmit} className="flex-1 h-11" disabled={submitForm.isPending}>
+              {submitForm.isPending ? 'در حال ارسال...' : 'ثبت'}
             </Button>
           )}
         </div>
       </div>
-    </form>
+    </div>
   );
 }

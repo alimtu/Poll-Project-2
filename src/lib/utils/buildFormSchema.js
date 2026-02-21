@@ -5,13 +5,23 @@ export default function buildFormSchema(steps) {
   const shape = {};
 
   for (const step of steps) {
-    const allSections = [...(step.sections || []), ...(step.sections2 || [])];
+    const sections = step.sections || [];
 
-    for (const section of allSections) {
-      const key = `section_${section.sectionId}`;
-      const isRequired = !!section.required;
-
-      shape[key] = buildRule(section, isRequired);
+    if (step.numrow > 1) {
+      const rowShape = {};
+      for (const section of sections) {
+        const key = `section_${section.sectionId}`;
+        rowShape[key] = buildRule(section, false);
+      }
+      shape[`rows_${step.stepId}`] = Joi.array()
+        .items(Joi.object(rowShape))
+        .min(1)
+        .label(step.title);
+    } else {
+      for (const section of sections) {
+        const key = `section_${section.sectionId}`;
+        shape[key] = buildRule(section, !!section.required);
+      }
     }
   }
 
@@ -24,6 +34,18 @@ function buildRule(section, isRequired) {
     case 1:
       return isRequired
         ? Joi.string().required().disallow('', null).label(section.title)
+        : Joi.string().allow('', null).label(section.title);
+
+    case 2:
+      return isRequired
+        ? Joi.string()
+            .required()
+            .custom((value, helpers) => {
+              const stripped = (value || '').replace(/<[^>]*>/g, '').trim();
+              if (!stripped) return helpers.error('any.required');
+              return value;
+            })
+            .label(section.title)
         : Joi.string().allow('', null).label(section.title);
 
     case 3:
@@ -48,10 +70,16 @@ function buildRule(section, isRequired) {
 
     case 7:
     case 8:
-    case 9:
+    case 23:
+    case 24:
       return isRequired
         ? Joi.any().required().invalid(null, '').label(section.title)
         : Joi.any().label(section.title);
+
+    case 9:
+      return isRequired
+        ? Joi.string().required().disallow('', null).label(section.title)
+        : Joi.string().allow('', null).label(section.title);
 
     case 14:
       return isRequired

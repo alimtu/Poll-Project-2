@@ -1,5 +1,6 @@
 import axios from 'axios';
 import config from '../../config';
+import logout from '../logout';
 
 // ─── Error ───────────────────────────────────────────────
 class ApiError extends Error {
@@ -34,10 +35,7 @@ class HttpService {
   }
 
   #handleAuthFailure() {
-    if (typeof window !== 'undefined') {
-      localStorage.clear();
-      window.location.href = '/login';
-    }
+    logout();
   }
 
   #setupInterceptors() {

@@ -1,10 +1,12 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRightIcon } from 'lucide-react';
 import {
   Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
 import MinimalError from '../../../components/Error/MinimalError';
 import ChartsPageSkeleton from '../../../components/Skeleton/ChartsPageSkeleton';
@@ -15,18 +17,21 @@ const COLORS = ['#3b5998', '#4c8bf5', '#f5a623', '#e74c3c', '#2ecc71', '#9b59b6'
 const FIELD_TYPE_LABELS = {
   0: 'متن',
   1: 'متن بلند',
+  2: 'متن پیشرفته',
   3: 'عدد',
   4: 'تک انتخابی',
   5: 'چند انتخابی',
   6: 'تاریخ',
   7: 'تصویر',
   8: 'فایل',
-  9: 'ویدیو',
-  10: 'زمان',
+  9: 'ماسک',
+  10: 'چند سطحی',
   14: 'دسته‌بندی',
+  23: 'صوت',
+  24: 'فیلم',
 };
 
-function buildChartData(forms) {
+function buildFormChartData(forms) {
   const stepsPerForm = forms.map((f) => ({
     name: f.title,
     value: f.steps?.length || 0,
@@ -35,7 +40,7 @@ function buildChartData(forms) {
   const fieldsPerForm = forms.map((f) => {
     let count = 0;
     (f.steps || []).forEach((s) => {
-      count += (s.sections || []).length + (s.sections2 || []).length;
+      count += (s.sections || []).length;
     });
     return { name: f.title, value: count };
   });
@@ -43,7 +48,7 @@ function buildChartData(forms) {
   const typeCountMap = {};
   forms.forEach((f) => {
     (f.steps || []).forEach((s) => {
-      [...(s.sections || []), ...(s.sections2 || [])].forEach((sec) => {
+      (s.sections || []).forEach((sec) => {
         const label = FIELD_TYPE_LABELS[sec.type] || `نوع ${sec.type}`;
         typeCountMap[label] = (typeCountMap[label] || 0) + 1;
       });
@@ -57,7 +62,7 @@ function buildChartData(forms) {
     let req = 0;
     let opt = 0;
     (f.steps || []).forEach((s) => {
-      [...(s.sections || []), ...(s.sections2 || [])].forEach((sec) => {
+      (s.sections || []).forEach((sec) => {
         if (sec.required) req++;
         else opt++;
       });
@@ -68,6 +73,21 @@ function buildChartData(forms) {
   return { stepsPerForm, fieldsPerForm, fieldTypeDist, requiredData };
 }
 
+function parseRequestData(raw) {
+  const formsObj = raw?.forms || {};
+  const perForm = [];
+  let totalRequests = 0;
+
+  for (const [formName, requests] of Object.entries(formsObj)) {
+    const count = Object.keys(requests).length;
+    totalRequests += count;
+    perForm.push({ name: formName, value: count });
+  }
+
+  perForm.sort((a, b) => b.value - a.value);
+  return { perForm, totalRequests, totalForms: perForm.length };
+}
+
 function ChartCard({ title, children }) {
   return (
     <div className="rounded-2xl border border-grey-100 bg-white overflow-hidden">
@@ -75,6 +95,16 @@ function ChartCard({ title, children }) {
         <h3 className="text-xs font-semibold text-grey-700">{title}</h3>
       </div>
       <div className="px-2 pb-4">{children}</div>
+    </div>
+  );
+}
+
+function SectionTitle({ children }) {
+  return (
+    <div className="flex items-center gap-2 pt-2">
+      <div className="h-px flex-1 bg-grey-100" />
+      <span className="text-[11px] font-semibold text-grey-400 shrink-0">{children}</span>
+      <div className="h-px flex-1 bg-grey-100" />
     </div>
   );
 }
@@ -137,7 +167,7 @@ const CustomTooltip = ({ active, payload }) => {
     <div className="bg-white border border-grey-100 rounded-lg shadow-sm px-3 py-2 text-xs" dir="rtl">
       {payload.map((p, i) => (
         <p key={i} className="text-grey-700">
-          <span style={{ color: p.fill || p.color }}>{p.name}</span>: <span className="font-semibold">{p.value}</span>
+          <span style={{ color: p.fill || p.color }}>{p.name || p.dataKey}</span>: <span className="font-semibold">{p.value}</span>
         </p>
       ))}
     </div>
@@ -146,30 +176,30 @@ const CustomTooltip = ({ active, payload }) => {
 
 export default function ChartsPage() {
   const router = useRouter();
-  const { data, isLoading, error, refetch } = useFormData('m_forms');
+  const { data: formsData, isLoading: formsLoading, error: formsError, refetch: formsRefetch } = useFormData('m_forms');
+  const { data: requestData, isLoading: requestLoading, error: requestError, refetch: requestRefetch } = useFormData('m_request');
+
+  const formList = useMemo(() => {
+    const forms = formsData?.forms || formsData || [];
+    return Array.isArray(forms) ? forms : [];
+  }, [formsData]);
+
+  const formCharts = useMemo(
+    () => (formList.length > 0 ? buildFormChartData(formList) : null),
+    [formList],
+  );
+
+  const reqCharts = useMemo(() => parseRequestData(requestData), [requestData]);
+
+  const isLoading = formsLoading || requestLoading;
+  const hasError = formsError && requestError;
 
   if (isLoading) return <ChartsPageSkeleton />;
-  if (error) return <MinimalError onRetry={refetch} />;
-
-  const forms = data?.forms || data || [];
-  const formList = Array.isArray(forms) ? forms : [];
-
-  if (formList.length === 0) {
-    return (
-      <div className="p-4">
-        <button type="button" onClick={() => router.back()} className="p-1 rounded-md text-grey-400 hover:text-grey-700 hover:bg-grey-50 transition-colors">
-          <ArrowRightIcon className="size-5" />
-        </button>
-        <p className="text-sm text-grey-400 text-center py-12">داده‌ای برای نمایش وجود ندارد.</p>
-      </div>
-    );
-  }
-
-  const { stepsPerForm, fieldsPerForm, fieldTypeDist, requiredData } = buildChartData(formList);
+  if (hasError) return <MinimalError onRetry={() => { formsRefetch(); requestRefetch(); }} />;
 
   const totalForms = formList.length;
-  const totalSteps = stepsPerForm.reduce((s, d) => s + d.value, 0);
-  const totalFields = fieldsPerForm.reduce((s, d) => s + d.value, 0);
+  const totalSteps = formCharts ? formCharts.stepsPerForm.reduce((s, d) => s + d.value, 0) : 0;
+  const totalFields = formCharts ? formCharts.fieldsPerForm.reduce((s, d) => s + d.value, 0) : 0;
 
   return (
     <div className="p-4 space-y-4 pb-8">
@@ -181,85 +211,158 @@ export default function ChartsPage() {
         <h1 className="text-sm font-bold text-grey-800">آمار فرم‌ها</h1>
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-3">
-        <StatCard label="فرم" value={totalForms} color="#3b5998" />
-        <StatCard label="مرحله" value={totalSteps} color="#4c8bf5" />
-        <StatCard label="فیلد" value={totalFields} color="#2ecc71" />
-      </div>
+      {/* ───── Request stats section ───── */}
+      {reqCharts.totalRequests > 0 && (
+        <>
+          <SectionTitle>درخواست‌ها</SectionTitle>
 
-      {/* Steps per form — progress bars */}
-      <ChartCard title="تعداد مراحل هر فرم">
-        <HorizontalList data={stepsPerForm} color="#3b5998" unit="مرحله" />
-      </ChartCard>
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard label="کل درخواست‌ها" value={reqCharts.totalRequests} color="#9b59b6" />
+            <StatCard label="فرم‌های دارای درخواست" value={reqCharts.totalForms} color="#1abc9c" />
+          </div>
 
-      {/* Fields per form — progress bars */}
-      <ChartCard title="تعداد فیلدهای هر فرم">
-        <HorizontalList data={fieldsPerForm} color="#4c8bf5" unit="فیلد" />
-      </ChartCard>
+          <ChartCard title="تعداد درخواست به ازای هر فرم">
+            <HorizontalList data={reqCharts.perForm} color="#9b59b6" unit="درخواست" />
+          </ChartCard>
 
-      {/* Field type distribution — donut + legend */}
-      <ChartCard title="توزیع نوع فیلدها">
-        <div className="flex flex-col items-center gap-4">
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              <Pie
-                data={fieldTypeDist}
-                cx="50%"
-                cy="50%"
-                innerRadius={45}
-                outerRadius={72}
-                paddingAngle={3}
-                dataKey="value"
-                stroke="none"
-              >
-                {fieldTypeDist.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<CustomTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
-          <LegendList data={fieldTypeDist} colors={COLORS} />
-        </div>
-      </ChartCard>
-
-      {/* Required vs Optional */}
-      <ChartCard title="فیلدهای الزامی و اختیاری">
-        <div className="space-y-3 px-2">
-          {requiredData.map((d) => {
-            const total = d['الزامی'] + d['اختیاری'];
-            const reqPct = total > 0 ? Math.round((d['الزامی'] / total) * 100) : 0;
-            const optPct = 100 - reqPct;
-            return (
-              <div key={d.name}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs text-grey-600 truncate max-w-[60%]">{d.name}</span>
-                  <span className="text-[10px] text-grey-400 tabular-nums">{d['الزامی']} الزامی · {d['اختیاری']} اختیاری</span>
-                </div>
-                <div className="flex h-2.5 rounded-full overflow-hidden bg-grey-50">
-                  {reqPct > 0 && (
-                    <div className="bg-[#e74c3c] transition-all duration-500" style={{ width: `${reqPct}%` }} />
-                  )}
-                  {optPct > 0 && (
-                    <div className="bg-[#2ecc71] transition-all duration-500" style={{ width: `${optPct}%` }} />
-                  )}
-                </div>
+          {reqCharts.perForm.length > 1 && (
+            <ChartCard title="سهم هر فرم از کل درخواست‌ها">
+              <div className="flex flex-col items-center gap-4">
+                <ResponsiveContainer width="100%" height={180}>
+                  <PieChart>
+                    <Pie
+                      data={reqCharts.perForm}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={45}
+                      outerRadius={72}
+                      paddingAngle={3}
+                      dataKey="value"
+                      stroke="none"
+                    >
+                      {reqCharts.perForm.map((_, i) => (
+                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <LegendList data={reqCharts.perForm} colors={COLORS} />
               </div>
-            );
-          })}
-        </div>
-        <div className="flex items-center justify-center gap-5 mt-3 pt-2 border-t border-grey-50">
-          <div className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[#e74c3c]" />
-            <span className="text-[10px] text-grey-500">الزامی</span>
+            </ChartCard>
+          )}
+
+          {reqCharts.perForm.length > 1 && (
+            <ChartCard title="مقایسه درخواست‌ها">
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={reqCharts.perForm} layout="vertical" margin={{ top: 0, right: 16, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f0f0" />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: '#888' }} allowDecimals={false} />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    tick={{ fontSize: 10, fill: '#555' }}
+                    width={80}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="value" name="درخواست" radius={[0, 6, 6, 0]} barSize={20}>
+                    {reqCharts.perForm.map((_, i) => (
+                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )}
+        </>
+      )}
+
+      {/* ───── Form structure stats section ───── */}
+      {formCharts && (
+        <>
+          <SectionTitle>ساختار فرم‌ها</SectionTitle>
+
+          <div className="grid grid-cols-3 gap-3">
+            <StatCard label="فرم" value={totalForms} color="#3b5998" />
+            <StatCard label="مرحله" value={totalSteps} color="#4c8bf5" />
+            <StatCard label="فیلد" value={totalFields} color="#2ecc71" />
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[#2ecc71]" />
-            <span className="text-[10px] text-grey-500">اختیاری</span>
-          </div>
-        </div>
-      </ChartCard>
+
+          <ChartCard title="تعداد مراحل هر فرم">
+            <HorizontalList data={formCharts.stepsPerForm} color="#3b5998" unit="مرحله" />
+          </ChartCard>
+
+          <ChartCard title="تعداد فیلدهای هر فرم">
+            <HorizontalList data={formCharts.fieldsPerForm} color="#4c8bf5" unit="فیلد" />
+          </ChartCard>
+
+          <ChartCard title="توزیع نوع فیلدها">
+            <div className="flex flex-col items-center gap-4">
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie
+                    data={formCharts.fieldTypeDist}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={45}
+                    outerRadius={72}
+                    paddingAngle={3}
+                    dataKey="value"
+                    stroke="none"
+                  >
+                    {formCharts.fieldTypeDist.map((_, i) => (
+                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <LegendList data={formCharts.fieldTypeDist} colors={COLORS} />
+            </div>
+          </ChartCard>
+
+          <ChartCard title="فیلدهای الزامی و اختیاری">
+            <div className="space-y-3 px-2">
+              {formCharts.requiredData.map((d) => {
+                const total = d['الزامی'] + d['اختیاری'];
+                const reqPct = total > 0 ? Math.round((d['الزامی'] / total) * 100) : 0;
+                const optPct = 100 - reqPct;
+                return (
+                  <div key={d.name}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs text-grey-600 truncate max-w-[60%]">{d.name}</span>
+                      <span className="text-[10px] text-grey-400 tabular-nums">{d['الزامی']} الزامی · {d['اختیاری']} اختیاری</span>
+                    </div>
+                    <div className="flex h-2.5 rounded-full overflow-hidden bg-grey-50">
+                      {reqPct > 0 && (
+                        <div className="bg-[#e74c3c] transition-all duration-500" style={{ width: `${reqPct}%` }} />
+                      )}
+                      {optPct > 0 && (
+                        <div className="bg-[#2ecc71] transition-all duration-500" style={{ width: `${optPct}%` }} />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-center gap-5 mt-3 pt-2 border-t border-grey-50">
+              <div className="flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-[#e74c3c]" />
+                <span className="text-[10px] text-grey-500">الزامی</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-[#2ecc71]" />
+                <span className="text-[10px] text-grey-500">اختیاری</span>
+              </div>
+            </div>
+          </ChartCard>
+        </>
+      )}
+
+      {/* No data at all */}
+      {!formCharts && reqCharts.totalRequests === 0 && (
+        <p className="text-sm text-grey-400 text-center py-12">داده‌ای برای نمایش وجود ندارد.</p>
+      )}
     </div>
   );
 }

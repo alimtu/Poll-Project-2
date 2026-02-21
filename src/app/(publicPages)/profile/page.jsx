@@ -10,6 +10,7 @@ import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
 import useProfile, { useUpdateProfile } from '../../../lib/hooks/useProfile';
+import logout from '../../../lib/logout';
 
 const FIELDS = [
   { key: 'fname', label: 'نام' },
@@ -68,9 +69,7 @@ export default function ProfilePage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('finger');
-    toast.success('با موفقیت خارج شدید.');
-    router.push('/login');
+    logout();
   };
 
   return (
