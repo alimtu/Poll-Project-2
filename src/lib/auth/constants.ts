@@ -1,2 +1,2 @@
 export const AUTH_COOKIE_NAME = 'finger';
-export const DEFAULT_MOBILE = '09333730037';
+export const DEFAULT_MOBILE = '';

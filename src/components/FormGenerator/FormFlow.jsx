@@ -181,22 +181,23 @@ export default function FormFlow({ form, onBack }) {
         </div>
       </div>
 
-      {/* Sticky bottom nav */}
-      <div className="sticky bottom-0 bg-white/95 backdrop-blur-sm border-t border-grey-100 p-4 flex gap-3">
-        {!isFirst && (
-          <Button type="button" variant="outline" onClick={goPrev} className="flex-1 h-11">
-            قبلی
-          </Button>
-        )}
-        {!isLast ? (
-          <Button type="button" onClick={goNext} className="flex-1 h-11">
-            بعدی
-          </Button>
-        ) : (
-          <Button type="submit" className="flex-1 h-11" disabled={isSubmitting}>
-            {isSubmitting ? 'در حال ارسال...' : 'ثبت'}
-          </Button>
-        )}
+      <div className="fixed bottom-0 inset-x-0 z-50 flex justify-center safe-bottom">
+        <div className="w-full max-w-[480px] bg-white/95 backdrop-blur-sm border-t border-grey-100 p-4 flex gap-3">
+          {!isFirst && (
+            <Button type="button" variant="outline" onClick={goPrev} className="flex-1 h-11">
+              قبلی
+            </Button>
+          )}
+          {!isLast ? (
+            <Button type="button" onClick={goNext} className="flex-1 h-11">
+              بعدی
+            </Button>
+          ) : (
+            <Button type="submit" className="flex-1 h-11" disabled={isSubmitting}>
+              {isSubmitting ? 'در حال ارسال...' : 'ثبت'}
+            </Button>
+          )}
+        </div>
       </div>
     </form>
   );

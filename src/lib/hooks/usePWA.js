@@ -2,17 +2,25 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
+const IS_PROD = process.env.NODE_ENV === 'production';
+
 export function useServiceWorker() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const registrationRef = useRef(null);
+  const reloadingRef = useRef(false);
 
   useEffect(() => {
+    if (!IS_PROD) return;
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
 
     navigator.serviceWorker
-      .register('/sw.js')
+      .register('/sw.js', { updateViaCache: 'none' })
       .then((reg) => {
         registrationRef.current = reg;
+
+        if (reg.waiting && navigator.serviceWorker.controller) {
+          setUpdateAvailable(true);
+        }
 
         reg.addEventListener('updatefound', () => {
           const newWorker = reg.installing;
@@ -24,16 +32,19 @@ export function useServiceWorker() {
             }
           });
         });
-
-        if (reg.waiting && navigator.serviceWorker.controller) {
-          setUpdateAvailable(true);
-        }
       })
       .catch(() => {});
 
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
+    const onControllerChange = () => {
+      if (reloadingRef.current) return;
+      reloadingRef.current = true;
       window.location.reload();
-    });
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+
+    return () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+    };
   }, []);
 
   const applyUpdate = useCallback(() => {
@@ -72,6 +83,8 @@ export function useInstallPrompt() {
   const deferredPrompt = useRef(null);
 
   useEffect(() => {
+    if (!IS_PROD) return;
+
     const handler = (e) => {
       e.preventDefault();
       deferredPrompt.current = e;

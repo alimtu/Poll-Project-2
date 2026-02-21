@@ -7,16 +7,20 @@ import { Toaster } from "@/components/ui/sonner"
 import PWAProvider from './PWA/PWAProvider';
 import LocationPrompt from './LocationPrompt';
 import { useGeolocation } from '@/lib/hooks/useGeolocation';
+import useVersionData from '@/lib/hooks/useVersionData';
 
 
 export default function LayoutShell({ children }) {
   const router = useRouter();
   const pathname = usePathname();
   const { status, checking, requestPermission } = useGeolocation();
+  const { data } = useVersionData();
 
   const isLoginPage = pathname === '/login';
   const isLocationRequiredPage = pathname === '/location-required';
   const isLoggedIn = typeof window !== 'undefined' && !!localStorage.getItem('finger');
+
+  const versionData = data;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -46,13 +50,32 @@ export default function LayoutShell({ children }) {
 
   const needsLocationPrompt = !isLoginPage && !isLocationRequiredPage && isLoggedIn && (status === 'idle' || status === 'loading') && !checking;
 
+
   return (
     <PWAProvider>
       <div className="min-h-screen bg-grey-100 flex justify-center overflow-x-hidden">
         <div className="w-full max-w-[480px] min-h-screen bg-white shadow-xl relative flex flex-col overflow-x-hidden">
           {!isLoginPage && !isLocationRequiredPage && (
             <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-grey-100 bg-white px-4">
-              <p className="text-sm font-bold text-primary-600">ICMS</p>
+              <div className="flex items-center gap-2 min-w-0">
+                {versionData?.logo && (
+                  <img
+                    src={versionData.logo}
+                    alt=""
+                    className="size-8 shrink-0 rounded object-contain"
+                  />
+                )}
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-sm font-bold text-primary-600 truncate">
+                    {versionData?.name || 'ICMS'}
+                  </span>
+                  {versionData?.version && (
+                    <span className="text-xs text-grey-500 shrink-0">
+                      v{versionData.version}
+                    </span>
+                  )}
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => router.push('/profile')}

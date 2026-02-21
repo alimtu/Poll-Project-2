@@ -59,8 +59,8 @@ class HttpService {
       response => {
         const body = response.data;
 
-        // API-level error inside a 2xx response
-        if (!(body?.status || body?.success)) {
+        // API-level error inside a 2xx response (skip for endpoints that return raw data, e.g. m_version)
+        if (!response.config?._skipStatusCheck && !(body?.status || body?.success)) {
           const statusCode = body?.statusCode || response.status;
           if (typeof window !== 'undefined' && !this.#isAuthRequest(response.config) && (statusCode === 401 || statusCode === 403)) {
             this.#handleAuthFailure();

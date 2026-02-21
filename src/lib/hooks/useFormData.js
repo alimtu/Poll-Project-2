@@ -10,15 +10,13 @@ export default function useFormData(op, options = {}) {
   return useQuery({
     queryKey: ['form-data', op],
     queryFn: async ({ signal }) => {
-      // The finger, name=Icms, and file=json are automatically 
-      // added by the axios interceptor in src/lib/axios/index.js
       return http.get('/', {
         params: { op },
         signal,
+        _skipStatusCheck: op === 'm_version', // m_version returns raw { version, logo, name, images }
       });
     },
     enabled: !!op,
     ...options,
   });
 }
-
